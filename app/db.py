@@ -61,6 +61,10 @@ def fetch_transactions(
     wheres: List[str] = []
     params: List[Any] = []
 
+    # Filtro organizaciones
+    wheres.append("tr.id_organizacion IN (1,11,12,13,14)")
+
+
     if date_from and date_to:
         wheres.append("tr.date BETWEEN %s AND %s")
         params.extend([date_from, date_to])
@@ -73,15 +77,15 @@ def fetch_transactions(
 
     if product_accounts:
         placeholders = ",".join(["%s"] * len(product_accounts))
-        wheres.append(f"product_account IN ({placeholders})")
+        wheres.append(f"tr.product_account IN ({placeholders})")
         params.extend(product_accounts)
 
     if description_search:
-        wheres.append("description ILIKE %s")
+        wheres.append("tr.description ILIKE %s")
         params.append(f"%{description_search}%")
 
     if id_transaction:
-        wheres.append("id_transactionai = %s")
+        wheres.append("tr.id_transactionai = %s")
         params.append(id_transaction)
 
     if organization_names:
@@ -89,7 +93,7 @@ def fetch_transactions(
         allowed_ids = [name_to_id[n] for n in organization_names if n in name_to_id]
         if allowed_ids:
             placeholders = ",".join(["%s"] * len(allowed_ids))
-            wheres.append(f"id_organizacion IN ({placeholders})")
+            wheres.append(f"tr.id_organizacion IN ({placeholders})")
             params.extend(allowed_ids)
 
     base_query = """
@@ -133,7 +137,7 @@ def distinct_product_accounts() -> List[str]:
 
 def distinct_organization_names() -> List[str]:
     with get_cursor("ORG_DB") as cur:
-        cur.execute("SELECT DISTINCT nombre FROM organizaciones ORDER BY 1")
+        cur.execute("SELECT DISTINCT nombre FROM organizaciones WHERE id_organizacion IN (1,11,12,13,14) ORDER BY 1")
         return [r["nombre"] for r in cur.fetchall() if r["nombre"]]
 
 def update_conciliation(transaction_ids: List[int], status: str) -> None:
