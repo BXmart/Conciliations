@@ -9,12 +9,12 @@ from auth import login
 from db import fetch_transactions, distinct_product_accounts, distinct_organization_names, update_conciliation
 
 st.set_page_config(
-    page_title="⚖️ Transaction Conciliations",
+    page_title="⚖️ Conciliaciones",
     page_icon="💳",
     layout="wide",
 )
 
-st.title("💳 Transaction Conciliations")
+st.title("💳 Conciliaciones")
 
 if not login():
     st.stop()
