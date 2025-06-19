@@ -1,15 +1,4 @@
-"""Database helpers for the conciliations Streamlit app.
-
-There are two PostgreSQL databases involved:
-1. *Transactions DB* (env vars prefixed with **DB_***).  Contains the
-   `transactions`, `transaction` and `comun_transaction` tables that we
-   need to read and update.
-2. *Organizations DB* (env vars prefixed with **ORG_DB_***).  Contains the
-   `organizations` table that maps `organization_id -> name`.
-
-Both connections are created on‑demand and kept in an in‑memory cache so
-we reuse them across Streamlit reruns.
-"""
+"""Database helpers for the conciliations Streamlit app."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -20,32 +9,31 @@ from typing import Any, Dict, List, Tuple
 import pandas as pd
 import psycopg2
 import psycopg2.extras as extras
+from psycopg2.extras import RealDictCursor
 
 ###############################################################################
 # Low‑level helpers
 ###############################################################################
 
-def _get_conn_params(prefix: str) -> Dict[str, Any]:
-    """Return a dict with psycopg2.connect(**params) parameters."""
-    keys = ["HOST", "PORT", "NAME", "USER", "PASSWORD"]
-    return {
-        k.lower(): os.getenv(f"{prefix}_{k}")
-        for k in keys
-    }
+def get_connection(prefix: str):
+    return psycopg2.connect(
+        host=os.getenv(f"{prefix}_HOST"),
+        port=os.getenv(f"{prefix}_PORT", 5432),
+        dbname=os.getenv(f"{prefix}_NAME"),
+        user=os.getenv(f"{prefix}_USER"),
+        password=os.getenv(f"{prefix}_PASSWORD"),
+        cursor_factory=RealDictCursor,
+        connect_timeout=5,
+    )
 
 @lru_cache(maxsize=2)
 def _connection(prefix: str):
-    """Lazily create and cache a psycopg2 connection for *prefix* env vars."""
-    params = _get_conn_params(prefix)
-    if not params["host"]:
-        raise RuntimeError(f"Missing env vars for {prefix}_… database configuration")
-    conn = psycopg2.connect(cursor_factory=extras.RealDictCursor, **params)
-    conn.autocommit = True  # we handle commits manually where required
+    conn = get_connection(prefix)
+    conn.autocommit = True
     return conn
 
 @contextmanager
 def get_cursor(prefix: str):
-    """Context manager that yields a cursor and commits/rolls back properly."""
     conn = _connection(prefix)
     cur = conn.cursor()
     try:
@@ -68,19 +56,19 @@ def fetch_transactions(
     product_accounts: List[str] | None = None,
     description_search: str | None = None,
     organization_names: List[str] | None = None,
+    id_transaction: int | None = None,
 ) -> pd.DataFrame:
-    """Return a DataFrame of transactions filtered by the supplied criteria."""
     wheres: List[str] = []
     params: List[Any] = []
 
     if date_from and date_to:
-        wheres.append("transaction_date BETWEEN %s AND %s")
+        wheres.append("date BETWEEN %s AND %s")
         params.extend([date_from, date_to])
     elif date_from:
-        wheres.append("transaction_date >= %s")
+        wheres.append("date >= %s")
         params.append(date_from)
     elif date_to:
-        wheres.append("transaction_date <= %s")
+        wheres.append("date <= %s")
         params.append(date_to)
 
     if product_accounts:
@@ -92,21 +80,32 @@ def fetch_transactions(
         wheres.append("description ILIKE %s")
         params.append(f"%{description_search}%")
 
-    # First query the basic transaction info ---------------------------------
+    if id_transaction:
+        wheres.append("id_transactionai = %s")
+        params.append(id_transaction)
+
+    if organization_names:
+        name_to_id = _organization_name_to_id()
+        allowed_ids = [name_to_id[n] for n in organization_names if n in name_to_id]
+        if allowed_ids:
+            placeholders = ",".join(["%s"] * len(allowed_ids))
+            wheres.append(f"id_organizacion IN ({placeholders})")
+            params.extend(allowed_ids)
+
     base_query = """
         SELECT id_transactionai,
-               transaction_date,
+               date,
                product_account,
                amount,
                balance,
                description,
-               organization_id,
+               id_organizacion,
                conciliation
-        FROM transactions
+        FROM transaction
     """
     if wheres:
         base_query += " WHERE " + " AND ".join(wheres)
-    base_query += " ORDER BY transaction_date DESC LIMIT 5000"  # safety guard
+    base_query += " ORDER BY date DESC LIMIT 5000"
 
     with get_cursor("DB") as cur:
         cur.execute(base_query, tuple(params))
@@ -116,82 +115,53 @@ def fetch_transactions(
     if df.empty:
         return df
 
-    # ------------------------------------------------------------------------
-    # Enrich with organization names (2nd database)
-    # ------------------------------------------------------------------------
-    org_ids = df["organization_id"].dropna().unique().tolist()
-
-    if organization_names is not None:
-        # Map names to ids first so we can filter afterwards
-        name_to_id = _organization_name_to_id()
-        allowed_ids = [name_to_id[n] for n in organization_names if n in name_to_id]
-        df = df[df["organization_id"].isin(allowed_ids)]
-        org_ids = allowed_ids  # reduce the set we need to fetch
+    org_ids = df["id_organizacion"].dropna().unique().tolist()
 
     if org_ids:
         id_to_name = _organization_id_to_name(org_ids)
-        df["organization_name"] = df["organization_id"].map(id_to_name)
+        df["organization_name"] = df["id_organizacion"].map(id_to_name)
     else:
         df["organization_name"] = None
 
     return df
 
-# ---------------------------------------------------------------------------
-# Distinct values helpers (used to populate filter widgets)
-# ---------------------------------------------------------------------------
-
 def distinct_product_accounts() -> List[str]:
     with get_cursor("DB") as cur:
-        cur.execute("SELECT DISTINCT product_account FROM transactions ORDER BY 1")
-        return [r[0] for r in cur.fetchall() if r[0]]
+        cur.execute("SELECT DISTINCT product_account FROM transaction ORDER BY 1")
+        return [r["product_account"] for r in cur.fetchall() if r["product_account"]]
 
 def distinct_organization_names() -> List[str]:
     with get_cursor("ORG_DB") as cur:
-        cur.execute("SELECT DISTINCT name FROM organizations ORDER BY 1")
-        return [r[0] for r in cur.fetchall() if r[0]]
-
-# ---------------------------------------------------------------------------
-# Update helpers
-# ---------------------------------------------------------------------------
+        cur.execute("SELECT DISTINCT nombre FROM organizaciones ORDER BY 1")
+        return [r["nombre"] for r in cur.fetchall() if r["nombre"]]
 
 def update_conciliation(transaction_ids: List[int], status: str) -> None:
-    """Bulk‑update the conciliation status of *transaction_ids*.
-
-    *status* must be either "CONCILIATED" or "NOT_CONCILIATED".
-    """
     if status not in {"CONCILIATED", "NOT_CONCILIATED"}:
         raise ValueError("status must be 'CONCILIATED' or 'NOT_CONCILIATED'")
 
     if not transaction_ids:
         return
 
-    # Prepare bulk update ----------------------------------------------------
     placeholders = ",".join(["%s"] * len(transaction_ids))
 
     with get_cursor("DB") as cur:
-        # 1. Table `transaction` (singular)
         cur.execute(
             f"UPDATE transaction SET conciliation = %s WHERE id_transactionai IN ({placeholders})",
             (status, *transaction_ids),
         )
-        # 2. Table `comun_transaction`
         cur.execute(
             f"UPDATE comun_transaction SET conciliation = %s, conciliation_status = %s WHERE id_transaction IN ({placeholders})",
             (status, status, *transaction_ids),
         )
 
-###############################################################################
-# Internal helpers for organizations DB
-###############################################################################
-
 def _organization_id_to_name(ids: List[int]) -> Dict[int, str]:
     placeholders = ",".join(["%s"] * len(ids))
-    query = f"SELECT organization_id, name FROM organizations WHERE organization_id IN ({placeholders})"
+    query = f"SELECT id_organizacion, nombre FROM organizaciones WHERE id_organizacion IN ({placeholders})"
     with get_cursor("ORG_DB") as cur:
         cur.execute(query, tuple(ids))
-        return {row[0]: row[1] for row in cur.fetchall()}
+        return {row["id_organizacion"]: row["nombre"] for row in cur.fetchall()}
 
 def _organization_name_to_id() -> Dict[str, int]:
     with get_cursor("ORG_DB") as cur:
-        cur.execute("SELECT organization_id, name FROM organizations")
-        return {row[1]: row[0] for row in cur.fetchall()}
+        cur.execute("SELECT id_organizacion, nombre FROM organizaciones")
+        return {row["nombre"]: row["id_organizacion"] for row in cur.fetchall()}
