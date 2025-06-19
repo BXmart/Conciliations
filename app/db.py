@@ -62,13 +62,13 @@ def fetch_transactions(
     params: List[Any] = []
 
     if date_from and date_to:
-        wheres.append("date BETWEEN %s AND %s")
+        wheres.append("tr.date BETWEEN %s AND %s")
         params.extend([date_from, date_to])
     elif date_from:
-        wheres.append("date >= %s")
+        wheres.append("tr.date >= %s")
         params.append(date_from)
     elif date_to:
-        wheres.append("date <= %s")
+        wheres.append("tr.date <= %s")
         params.append(date_to)
 
     if product_accounts:
@@ -93,19 +93,20 @@ def fetch_transactions(
             params.extend(allowed_ids)
 
     base_query = """
-        SELECT id_transactionai,
-               date,
-               product_account,
-               amount,
-               balance,
-               description,
-               id_organizacion,
-               conciliation
-        FROM transaction
+        SELECT tr.id_transactionai,
+               tr.date,
+               tr.product_account,
+               tr.amount,
+               tr.balance,
+               tr.description,
+               tr.id_organizacion,
+               ct.conciliation
+        FROM transaction tr
+        LEFT JOIN comun_transaction ct ON tr.id_transactionai = ct.id_transaction
     """
     if wheres:
         base_query += " WHERE " + " AND ".join(wheres)
-    base_query += " ORDER BY date DESC LIMIT 5000"
+    base_query += " ORDER BY tr.date DESC LIMIT 5000"
 
     with get_cursor("DB") as cur:
         cur.execute(base_query, tuple(params))

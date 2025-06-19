@@ -68,10 +68,23 @@ def sidebar_filters():
 filters = sidebar_filters()
 
 @st.cache_data(ttl=300, show_spinner="Cargando transacciones…")
-def load_data(_filters: dict) -> pd.DataFrame:
-    return fetch_transactions(**_filters)
-
-df = load_data(filters)
+def load_data(
+    date_from,
+    date_to,
+    product_accounts,
+    description_search,
+    organization_names,
+    id_transaction,
+):
+    return fetch_transactions(
+        date_from=date_from,
+        date_to=date_to,
+        product_accounts=product_accounts,
+        description_search=description_search,
+        organization_names=organization_names,
+        id_transaction=id_transaction,
+    )
+df = load_data(**filters)
 
 if df.empty:
     st.info("No se encontraron transacciones con esos filtros.")
@@ -81,6 +94,9 @@ selection_col = "🔵 Conciliar"
 if selection_col not in df.columns:
     df.insert(0, selection_col, False)
 
+# Formatos
+df["id_transactionai"] = df["id_transactionai"].astype(str)
+    
 # Renombrar columnas y reordenar
 column_mapping = {
     "id_transactionai": "id",
@@ -95,7 +111,7 @@ column_mapping = {
 }
 
 df = df.rename(columns=column_mapping)
-columns_order = ["🔵 Conciliar", "id", "Fecha", "Producto Bancario", "Cantidad (€)", "Balance (€)", "Descripción", "Organización", "Estado"]
+columns_order = ["🔵 Conciliar", "Estado", "id", "Fecha", "Organización", "Producto Bancario", "Descripción", "Cantidad (€)", "Balance (€)"]
 df = df[columns_order]
 
 edited_df = st.data_editor(
