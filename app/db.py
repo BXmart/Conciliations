@@ -77,7 +77,8 @@ def fetch_transactions(
 
     if product_accounts:
         placeholders = ",".join(["%s"] * len(product_accounts))
-        wheres.append(f"tr.product_account IN ({placeholders})")
+        decrypted_expr = "Convert_from(decrypt(decode(tr.product_account,'BASE64'),'secret-key-12345','AES-ECB'), 'UTF-8')"
+        wheres.append(f"{decrypted_expr} IN ({placeholders})")
         params.extend(product_accounts)
 
     if description_search:
@@ -99,7 +100,7 @@ def fetch_transactions(
     base_query = """
         SELECT tr.id_transactionai,
                tr.date,
-               tr.product_account,
+               case when tr.product_account<>'' and tr.product_account is not null then Convert_from(decrypt(decode(tr.product_account,'BASE64'),'secret-key-12345','AES-ECB'), 'UTF-8') else tr.product_account end,
                tr.amount,
                tr.balance,
                tr.description,
@@ -132,7 +133,7 @@ def fetch_transactions(
 
 def distinct_product_accounts() -> List[str]:
     with get_cursor("DB") as cur:
-        cur.execute("SELECT DISTINCT product_account FROM transaction ORDER BY 1")
+        cur.execute("SELECT DISTINCT case when product_account<>'' and product_account is not null then Convert_from(decrypt(decode(product_account,'BASE64'),'secret-key-12345','AES-ECB'), 'UTF-8') else product_account end AS product_account FROM transaction ORDER BY 1")
         return [r["product_account"] for r in cur.fetchall() if r["product_account"]]
 
 def distinct_organization_names() -> List[str]:

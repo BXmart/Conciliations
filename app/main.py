@@ -7,6 +7,7 @@ import streamlit as st
 
 from auth import login
 from db import fetch_transactions, distinct_product_accounts, distinct_organization_names, update_conciliation
+from utils import decrypt_product_account
 
 st.set_page_config(
     page_title="⚖️ Conciliaciones",
@@ -96,7 +97,10 @@ if selection_col not in df.columns:
 
 # Formatos
 df["id_transactionai"] = df["id_transactionai"].astype(str)
-    
+
+# Desencriptar la columna product_account
+#df['product_account'] = df['product_account'].apply(decrypt_product_account)
+
 # Renombrar columnas y reordenar
 column_mapping = {
     "id_transactionai": "id",
