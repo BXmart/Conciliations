@@ -1,0 +1,90 @@
+pipeline {
+
+  agent any
+
+  options {
+      timeout(time: 10, unit: 'MINUTES') 
+  }
+  
+  environment {
+    DOCKER_IMAGE_TAG = ''
+    BRANCH_NAME = "$BRANCH_NAME"
+    KUBECONFIG = ''
+    DEPLOYMENT_NAME = "conciliations"
+    NAMESPACE = 'bexmarter-v0'
+    VPN_FILE = ''
+    DOCKERFILE = ''
+  }
+
+  stages {
+
+    stage('Clonar Repositorio') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Set Environment Variables') {
+        steps {
+            script {
+                if (BRANCH_NAME == 'develop') {
+                    DOCKER_IMAGE_TAG = "${DEPLOYMENT_NAME}-v0-dev:last"
+                    KUBECONFIG = 'devCluster-kubeconfig'
+                    VPN_FILE = '/etc/wireguard/wg0-dev.conf'
+                    DOCKERFILE = 'cloud/Dockerfile.dev'
+                } else if (BRANCH_NAME == 'main') {
+                    DOCKER_IMAGE_TAG = "${DEPLOYMENT_NAME}-v0:last"
+                    KUBECONFIG = 'prodCluster-kubeconfig'
+                    VPN_FILE = '/etc/wireguard/wg0-prod.conf'
+                    DOCKERFILE = 'cloud/Dockerfile'
+                }
+            }
+        }
+    }
+
+    stage('Enable VPN') {
+      steps {
+          script {
+              sh "sudo wg-quick up ${VPN_FILE}"
+          }
+      } 
+    }
+
+    stage('Docker Build') {
+            steps {
+                script {
+                    sh "echo 'DOCKER_IMAGE_TAG: $DOCKER_IMAGE_TAG'"
+                    sh "docker build -t bex-container-registry.cr.de-fra.ionos.com/$DOCKER_IMAGE_TAG . -f ${DOCKERFILE}"
+                }
+            }
+        } 
+     
+    stage('Docker Push') {
+        steps {
+            withCredentials([usernamePassword(credentialsId: 'images-cred', passwordVariable: 'dockerPassword', usernameVariable: 'dockerUser')]) {
+                sh "docker login -u ${env.dockerUser} -p ${env.dockerPassword} bex-container-registry.cr.de-fra.ionos.com"
+                sh "docker push bex-container-registry.cr.de-fra.ionos.com/$DOCKER_IMAGE_TAG"
+            }
+        } 
+    }
+
+    stage('Deploy to kubernetes') {
+      steps {
+          withKubeConfig([credentialsId: "${KUBECONFIG}"]) {
+              sh "kubectl apply -f cloud/service.${BRANCH_NAME}.yaml"
+              sh "kubectl rollout restart deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE}"
+          }
+      }
+    }
+  }
+
+  post {
+    always {
+    // Limpiar recursos usados
+      script {
+        sh "docker system prune -a -f"
+        sh "sudo wg-quick down ${VPN_FILE}"
+      }
+    }
+  }
+}

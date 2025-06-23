@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name:  conciliations
+  namespace: bexmarter-v0
+  labels:
+    app:  conciliations
+spec:
+  selector:
+    matchLabels:
+      app: conciliations
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 2
+  template:
+    metadata:
+      labels:
+        app:  conciliations
+    spec:
+      containers:
+      - name:  conciliations
+        image: bex-container-registry.cr.de-fra.ionos.com/conciliations-v0:last
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name:  conciliations
+        envFrom:
+        - secretRef:
+            name: conciliations-creds
+        - configMapRef:
+            name: conciliations-config
+      restartPolicy: Always
+      imagePullSecrets:
+      - name: regkey
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: conciliations
+  namespace: bexmarter-v0
+  labels:
+    app: conciliations
+spec:
+  selector:
+    app: conciliations
+  ports:
+  - protocol: TCP
+    name: conciliations
+    port: 8080
+    targetPort: conciliations
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: conciliations-ingress
+  namespace: bexmarter-v0
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-nginx
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - bexmarter-conciliations.bexmarter.es
+    secretName: tls-conciliations
+  rules:
+  - host: bexmarter-conciliations.bexmarter.es
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: conciliations
+            port:
+              number: 8080
