@@ -7,7 +7,7 @@ import streamlit as st
 
 from auth import login
 from db import fetch_transactions, distinct_product_accounts, distinct_organization_names, update_conciliation
-from utils import decrypt_product_account
+from utils import decrypt_product_account, log_conciliation
 
 st.set_page_config(
     page_title="⚖️ Conciliaciones",
@@ -136,11 +136,13 @@ col_a, col_b = st.columns(2)
 with col_a:
     if st.button("Conciliar ✅", disabled=not selected_ids, type="primary"):
         update_conciliation(selected_ids, "CONCILIATED")
+        log_conciliation("CONCILIATED", selected_ids)
         st.success(f"{len(selected_ids)} transacciones conciliadas correctamente.")
         st.experimental_rerun()
 
 with col_b:
     if st.button("Desconciliar ❌", disabled=not selected_ids, type="secondary"):
         update_conciliation(selected_ids, "NOT_CONCILIATED")
+        log_conciliation("NOT_CONCILIATED", selected_ids)
         st.warning(f"{len(selected_ids)} transacciones marcadas como NO conciliadas.")
         st.experimental_rerun()

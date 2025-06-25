@@ -1,5 +1,7 @@
 import pandas as pd
 import base64
+from datetime import datetime
+
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
@@ -21,3 +23,12 @@ def decrypt_product_account(value):
         return decrypted_data.decode('utf-8')
     except Exception as e:
         return f"[ERROR: {str(e)}]"
+    
+
+
+# Funcionar para log de conciliación
+def log_conciliation(action: str, ids: list):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open("conciliation_log.txt", "a") as log_file:
+        for _id in ids:
+            log_file.write(f"{now} | {action} | ID: {_id}\n")
