@@ -57,6 +57,7 @@ def fetch_transactions(
     description_search: str | None = None,
     organization_names: List[str] | None = None,
     id_transaction: int | None = None,
+    conciliation_status: str | None = None,
 ) -> pd.DataFrame:
     wheres: List[str] = []
     params: List[Any] = []
@@ -84,6 +85,10 @@ def fetch_transactions(
     if description_search:
         wheres.append("tr.description ILIKE %s")
         params.append(f"%{description_search}%")
+    
+    if conciliation_status:
+        wheres.append("ct.conciliation = %s")
+        params.append(conciliation_status)
 
     if id_transaction:
         wheres.append("tr.id_transactionai = %s")
@@ -141,6 +146,11 @@ def distinct_organization_names() -> List[str]:
         cur.execute("SELECT DISTINCT nombre FROM organizaciones WHERE id_organizacion IN (1,11,12,13,14) ORDER BY 1")
         return [r["nombre"] for r in cur.fetchall() if r["nombre"]]
 
+def distinct_conciliation_status() -> List[str]:
+    with get_cursor("DB") as cur:
+        cur.execute("SELECT DISTINCT conciliation FROM comun_transaction")
+        return [r["conciliation"] for r in cur.fetchall() if r["conciliation"]]
+    
 def update_conciliation(transaction_ids: List[int], status: str) -> None:
     if status not in {"CONCILIATED", "NOT_CONCILIATED"}:
         raise ValueError("status must be 'CONCILIATED' or 'NOT_CONCILIATED'")

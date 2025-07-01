@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from auth import login
-from db import fetch_transactions, distinct_product_accounts, distinct_organization_names, update_conciliation
+from db import fetch_transactions, distinct_product_accounts, distinct_organization_names, distinct_conciliation_status, update_conciliation
 from utils import decrypt_product_account, log_conciliation
 
 st.set_page_config(
@@ -24,6 +24,7 @@ def sidebar_filters():
     with st.sidebar:
         st.header("🔍 Filtros")
 
+        # 1. Fecha
         today = dt.date.today()
         default_from = today.replace(day=1)
         date_from, date_to = st.date_input(
@@ -32,23 +33,7 @@ def sidebar_filters():
             max_value=today,
         )
 
-        id_transaction = st.text_input("Id Transacción", value="")
-        id_transaction = int(id_transaction) if id_transaction.strip().isdigit() else None
-
-        products = distinct_product_accounts()
-        product_accounts = st.multiselect(
-            "Producto bancario",
-            options=products,
-            default=[],
-            placeholder="Todas…",
-        )
-
-        description_search = st.text_input(
-            "Descripción contiene…",
-            value="",
-            placeholder="Busca en texto de descripción",
-        )
-
+        # 2. Organización
         org_names = distinct_organization_names()
         organization_names = st.multiselect(
             "Organización",
@@ -57,6 +42,36 @@ def sidebar_filters():
             placeholder="Todas…",
         )
 
+        # 3. Producto bancario
+        products = distinct_product_accounts()
+        product_accounts = st.multiselect(
+            "Producto bancario",
+            options=products,
+            default=[],
+            placeholder="Todas…",
+        )
+
+        # 4. Descripción
+        description_search = st.text_input(
+            "Descripción contiene…",
+            value="",
+            placeholder="Busca en texto de descripción",
+        )
+
+        # 5. Estado
+        status_options = distinct_conciliation_status()
+        conciliation_status = st.selectbox(
+            "Estado",
+            options=["Todos"] + status_options,
+            index=0,
+        )
+        if conciliation_status == "Todos":
+            conciliation_status = None
+
+        # 6. ID Transacción
+        id_transaction = st.text_input("Id Transacción", value="")
+        id_transaction = int(id_transaction) if id_transaction.strip().isdigit() else None        
+
     return {
         "date_from": date_from,
         "date_to": date_to,
@@ -64,6 +79,7 @@ def sidebar_filters():
         "description_search": description_search.strip() or None,
         "organization_names": organization_names or None,
         "id_transaction": id_transaction,
+        "conciliation_status": conciliation_status,
     }
 
 filters = sidebar_filters()
@@ -76,6 +92,7 @@ def load_data(
     description_search,
     organization_names,
     id_transaction,
+    conciliation_status
 ):
     return fetch_transactions(
         date_from=date_from,
@@ -84,6 +101,7 @@ def load_data(
         description_search=description_search,
         organization_names=organization_names,
         id_transaction=id_transaction,
+        conciliation_status=conciliation_status,
     )
 df = load_data(**filters)
 
